@@ -67,25 +67,38 @@ with app.app_context():
     """)
 
 
-@app.cli.command("add-user")
-def add_user():
-    import click
-    role = click.prompt("Role", type=click.Choice(["junior", "cm"]))
-    username = click.prompt("Username").strip()
-    name = click.prompt("Full name").strip()
-    phone = click.prompt("CM contact phone").strip() if role == "cm" else ""
-    password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
+MEMBER_ROLES = {"junior": "Junior CM", "cm": "CM"}
+
+
+def create_account(role, username, name, phone, password):
+    username, name, phone = username.strip(), name.strip(), phone.strip()
+    if role not in (*MEMBER_ROLES, "admin"):
+        raise ValueError("Choose a valid role.")
     if not username or not name or len(password) < 12:
-        raise click.ClickException("Enter a username, full name and password of at least 12 characters.")
+        raise ValueError("Enter a username, full name and password of at least 12 characters.")
     if role == "cm" and (not re.fullmatch(r"[+() .0-9-]{6,24}", phone)
                          or sum(char.isdigit() for char in phone) < 6):
-        raise click.ClickException("Enter a valid CM phone number.")
+        raise ValueError("Enter a valid CM phone number.")
     try:
         with db():
             db().execute("INSERT INTO user (username,name,password,role,phone) VALUES (?,?,?,?,?)",
-                         (username, name, generate_password_hash(password), role, phone))
+                         (username, name, generate_password_hash(password), role, phone if role == "cm" else ""))
     except sqlite3.IntegrityError as error:
-        raise click.ClickException("Username already exists.") from error
+        raise ValueError("Username already exists.") from error
+
+
+@app.cli.command("add-user")
+def add_user():
+    import click
+    role = click.prompt("Role", type=click.Choice([*MEMBER_ROLES, "admin"]))
+    username = click.prompt("Username")
+    name = click.prompt("Full name")
+    phone = click.prompt("CM contact phone") if role == "cm" else ""
+    password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
+    try:
+        create_account(role, username, name, phone, password)
+    except ValueError as error:
+        raise click.ClickException(str(error)) from error
     click.echo("Account created.")
 
 
@@ -128,11 +141,37 @@ def logout():
 
 @app.get("/")
 def home():
+    if g.user["role"] == "admin":
+        return redirect(url_for("members"))
     column = "author" if g.user["role"] == "junior" else "cm"
     rows = db().execute(f"SELECT * FROM notice WHERE {column}=? AND status != 'deleted' ORDER BY id DESC", (g.user["id"],))
     notices = [(row, json.loads(row["data"])) for row in rows
                if g.user["role"] == "junior" or row["status"] not in ("draft", "returned")]
     return render_template("home.html", notices=notices)
+
+
+@app.route("/admin/members", methods=["GET", "POST"])
+def members():
+    if g.user["role"] != "admin":
+        abort(403)
+    form = {key: request.form.get(key, "") for key in ("role", "username", "name", "phone")}
+    if request.method == "POST":
+        try:
+            if form["role"] not in MEMBER_ROLES:
+                raise ValueError("Choose Junior CM or CM.")
+            password = request.form.get("password", "")
+            if password != request.form.get("confirmation", ""):
+                raise ValueError("The passwords do not match.")
+            create_account(**form, password=password)
+        except ValueError as error:
+            flash(str(error))
+        else:
+            flash(f'Account created for {form["username"].strip()}.', "success")
+            return redirect(url_for("members"), code=303)
+    accounts = db().execute(
+        "SELECT username, name, role, phone FROM user WHERE role IN ('junior','cm') ORDER BY name COLLATE NOCASE"
+    ).fetchall()
+    return render_template("members.html", accounts=accounts, form=form, roles=MEMBER_ROLES)
 
 
 def record(notice_id):
@@ -141,8 +180,10 @@ def record(notice_id):
         abort(404)
     if g.user["role"] == "junior":
         allowed = row["author"] == g.user["id"]
-    else:
+    elif g.user["role"] == "cm":
         allowed = row["cm"] == g.user["id"] and row["status"] not in ("draft", "returned")
+    else:
+        allowed = False
     if not allowed:
         abort(404)
     return row

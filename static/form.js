@@ -216,3 +216,16 @@ if (invalidField) {
     const focusTarget = invalidField.matches("fieldset") ? invalidField.querySelector("input") : invalidField;
     focusTarget?.focus();
 }
+
+const memberRole = document.querySelector("#member-role");
+if (memberRole) {
+    const row = document.querySelector("#member-phone-row");
+    const phone = memberRole.form.elements.phone;
+    const update = () => {
+        row.hidden = memberRole.value !== "cm";
+        phone.required = !row.hidden;
+        phone.disabled = row.hidden;
+    };
+    memberRole.addEventListener("change", update);
+    update();
+}

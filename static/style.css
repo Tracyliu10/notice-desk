@@ -130,3 +130,4 @@ dt { font-weight: 650; } dd { margin: 0; }
 #delete-notice { margin: 14px 0; }
 #preview-draft { scroll-margin-top: 18px; }
 .saved-note { color: var(--accent); margin: 0; }
+.member-form { max-width: 680px; }

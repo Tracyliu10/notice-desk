@@ -9,11 +9,11 @@
 </head>
 <body>
 <header><nav><a class="brand" href="{{ url_for('home') }}">Notice Desk</a>
-{% if g.user %}<div class="bar"><span>{{ g.user.name }} · {{ 'CM' if g.user.role == 'cm' else 'Junior CM' }}</span>
+{% if g.user %}<div class="bar"><span>{{ g.user.name }} · {{ {'admin':'Administrator','cm':'CM','junior':'Junior CM'}[g.user.role] }}</span>
 <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sign out</button></form></div>{% endif %}
 </nav></header>
 <main>
-{% for message in get_flashed_messages() %}<p role="alert" class="alert">{{ message }}</p>{% endfor %}
+{% for category, message in get_flashed_messages(with_categories=true) %}<p role="{{ 'status' if category == 'success' else 'alert' }}" class="{{ 'card saved-note' if category == 'success' else 'alert' }}">{{ message }}</p>{% endfor %}
 {% block content %}{% endblock %}
 </main>
 </body>
