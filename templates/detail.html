@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ titles[kind] }} · Notice Desk{% endblock %}
+{% macro invalid(key) %}{% if key in field_errors %}aria-invalid="true" aria-errormessage="error-{{ key }}"{% endif %}{% endmacro %}
+{% macro error(key) %}{% if key in field_errors %}<small class="field-error" id="error-{{ key }}">{{ field_errors[key] }}</small>{% endif %}{% endmacro %}
+{% macro input(key, label, type='text') %}
+<label>{{ label }}<input name="{{ key }}" type="{{ type }}" value="{{ data[key] }}" {{ invalid(key) }}>{{ error(key) }}</label>
+{% endmacro %}
+{% macro deadline(label) %}
+<label>{{ label }}
+<input name="due" type="date" value="{{ data.due }}" {{ invalid("due") }} {% if kind in ('rta-rent','oa-rent','rta-end') or (kind == 'oa-end' and data.manual_vacate != 'yes') %}readonly{% endif %}>
+{% if kind == 'rta-rent' %}<small>Calculated from the delivery date plus 60 calendar days.</small>
+{% elif kind == 'oa-rent' %}<small>Calculated from the issue date plus 28 calendar days.</small>{% endif %}
+{{ error("due") }}</label>
+{% endmacro %}
+{% macro area(key, label) %}
+<label>{{ label }}<textarea rows="3" name="{{ key }}" {{ invalid(key) }}>{{ data[key] }}</textarea>{{ error(key) }}</label>
+{% endmacro %}
+{% macro select(key, label, options) %}
+<label>{{ label }}<select name="{{ key }}" id="{{ key }}" {{ invalid(key) }}><option value="">Select</option>
+{% for option in options %}<option value="{{ loop.index0 }}" {% if data[key] == loop.index0|string %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>{{ error(key) }}</label>
+{% endmacro %}
+{% block content %}
+<a href="{{ url_for('home') }}" class="back">← Home</a>
+<p class="eyebrow">{{ entities[kind.split('-')[0]] }} · {{ kind.split('-')[0]|upper }} · #{{ row.id }}</p>
+<h1>{{ titles[kind] }}</h1>
+<p class="status">{{ 'Pending review' if row.status == 'pending' else row.status|capitalize }}</p>
+{% if returned %}<section class="card return-note"><h2>Changes requested</h2><p>{{ returned.detail }}</p></section>{% endif %}
+{% if row.previous %}<p>Revision of notice #{{ row.previous }}.</p>{% endif %}
+{% if kind == 'rta-end' %}<p class="muted">NSW Fair Trading download updated 3 July 2026.</p>{% endif %}
+
+{% if editable %}
+<form method="post" class="card stack" id="notice-edit" data-kind="{{ kind }}" data-term-dependent="{{ term_dependent|tojson|forceescape }}" data-ground-days="{{ fixed_ground_days|tojson|forceescape }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="revision" value="{{ row.revision }}">
+<h2>Tenant or resident</h2>
+<div class="resident-fields stack">
+<label class="resident-name">Full name(s)
+<input name="tenant" value="{{ data.tenant }}" aria-describedby="tenant-hint" {{ invalid("tenant") }}>{{ error("tenant") }}
+<small id="tenant-hint">Enter given name first, then surname. Example: Jamie Smith.</small>
+</label>
+<div class="address-row">
+<label>Property address
+<input name="address" value="{{ data.address }}" aria-describedby="address-hint" {{ invalid("address") }}>{{ error("address") }}
+<small id="address-hint">Include room or unit number, street, suburb and state.</small></label>
+{{ input('postcode', 'Postcode') }}
+</div>
+</div>
+<h2>Notice details</h2>
+{% if kind.endswith('-rent') %}
+<div class="grid">
+{% if kind == 'oa-rent' %}{{ input('current','Current occupancy fee (AUD)') }}{% endif %}
+{{ input('amount','New amount (AUD)') }}
+{{ deadline('Effective date') }}
+{% if kind == 'rta-rent' %}<label>Rent period<select name="period" {{ invalid("period") }}><option value="">Select</option>
+{% for period in ('week','fortnight') %}<option {% if data.period == period %}selected{% endif %}>{{ period }}</option>{% endfor %}
+</select>{{ error("period") }}</label>{% endif %}
+</div>
+{% if kind == 'oa-rent' %}{{ area('details','Payment instructions or additional details') }}{% endif %}
+{% else %}
+{% if kind.endswith('-end') %}{{ select('ground','Ground for termination',grounds) }}{% endif %}
+{% if kind == 'rta-end' %}
+<div id="lease-fields" class="grid">
+<label>Tenancy term<select name="lease_term" {{ invalid("lease_term") }}><option value="">Select term</option>
+{% for value, label in [('periodic', 'Periodic'), ('short', 'Fixed term of six months or less'), ('long', 'Fixed term longer than six months')] %}
+<option value="{{ value }}" {% if data.lease_term == value %}selected{% endif %}>{{ label }}</option>
+{% endfor %}</select>{{ error("lease_term") }}</label>
+<div id="lease-end-field">{{ input('lease_end', 'Fixed-term agreement end date','date') }}</div>
+</div>
+<div id="agreement-days-field">{{ input('agreement_days', 'Notice days specified in the employee or caretaker agreement','number') }}
+<small>Enter 0 if the agreement gives no separate period. The minimum is 30 days.</small></div>
+{% endif %}
+<div class="grid">{{ deadline('Move-out date' if kind.endswith('-end') else 'Remedy deadline') }}</div>
+{% if kind == 'oa-end' %}<label class="check"><input type="checkbox" name="manual_vacate" value="yes" {% if data.manual_vacate == 'yes' %}checked{% endif %}>Enter a different move-out date</label>{% endif %}
+{% if kind in ('rta-end','rta-breach') %}
+<div class="stack" {% if kind == 'rta-end' %}id="rta-breach-fields"{% endif %}>
+<fieldset {{ invalid("clauses") }}><legend>RTA breach clauses</legend>{{ error("clauses") }}
+<div class="checks">{% for code, label in clauses.items() %}
+<label><input type="checkbox" name="clauses" value="{{ code }}" {% if code in data.clauses %}checked{% endif %}><span>{{ code ~ ' · ' if code[0].isdigit() else '' }}{{ label }}</span></label>
+{% endfor %}</div>
+</fieldset>
+<div id="rta-other-clause">{{ area('provision_text','Other Clause') }}<small>Enter the clause number and applicable wording.</small></div>
+</div>
+{% elif kind == 'oa-breach' %}
+<label>Breach reason
+<select name="oa_reason" data-clause-mapping="{{ oa_breach_clauses|tojson|forceescape }}" {{ invalid("oa_reason") }}><option value="">Select</option>
+{% for value, title in oa_breach_reasons.items() %}<option value="{{ value }}" {% if data.oa_reason == value %}selected{% endif %}>{{ title }}</option>{% endfor %}
+</select>{{ error("oa_reason") }}</label>
+<div id="oa-other-reason">{{ input('oa_other_reason','Other breach reason') }}</div>
+{{ input('provision','Occupancy agreement clause or house rule') }}
+<small>For cleaning or upkeep, enter the specific rule from the signed agreement or house rules.</small>
+{% endif %}
+{{ area('details','Facts, dates and reason details' ~ (' (internal for grounds other than s 87C)' if kind == 'rta-end' else '')) }}
+{% if kind.endswith('-breach') %}{{ area('action','Action required to remedy the breach') }}{% endif %}
+{% if kind.endswith('-end') %}{{ area('evidence','Supporting documents or warnings (internal notes)') }}{% endif %}
+{% endif %}
+<h2>Delivery and reviewer</h2>
+<div class="grid">{{ input('date','Issue / delivery date','date') }}{{ select('delivery','Delivery method',delivery) }}</div>
+{% if kind.startswith('rta') %}
+<div id="postal-delivery">{{ input('service_date','Postal delivery date used for the notice period','date') }}
+<small>Allow for postal delivery before counting the notice period.</small></div>
+{% endif %}
+<p id="calculated-period" class="muted" aria-live="polite"></p>
+{% if kind == 'oa-breach' %}
+<label id="manual-period">Notice period
+<select name="days">
+<option value="">Enter deadline manually</option>
+{% for days in notice_days %}<option value="{{ days }}" {% if data.get('days') == days|string %}selected{% endif %}>{{ days }} calendar {{ 'day' if days == 1 else 'days' }}</option>{% endfor %}
+</select>
+<small>{% if kind == 'oa-breach' %}Choose the remedy period in the signed agreement or applicable house rule, for example 3 or 7 days. For a different period, enter the deadline manually.{% else %}For a selected period, the issue / delivery date is day zero.{% endif %}</small>
+</label>
+{% endif %}
+{% if 'Other' in delivery %}{{ input('other','Other delivery method, if selected') }}{% endif %}
+<div class="grid">
+<label>Reviewing CM<select name="cm" id="cm" {{ invalid("cm") }}><option value="">Select a CM</option>
+{% for manager in managers %}<option value="{{ manager.id }}" data-phone="{{ manager.phone }}"
+{% if cm and cm.id == manager.id %}selected{% endif %}>{{ manager.name }}</option>{% endfor %}
+</select>{{ error("cm") }}</label>
+<label>CM contact phone<input id="phone" readonly value="{{ cm.phone if cm else '' }}"></label>
+</div>
+<div class="bar"><button class="secondary" name="command" value="save">Save draft</button><button name="command" value="submit">Submit for review</button></div>
+</form>
+{% else %}
+<section class="card">
+<h2>Notice record</h2>
+<dl>
+<dt>Name(s)</dt><dd>{{ data.tenant }}</dd><dt>Property</dt><dd>{{ data.address }} {{ data.postcode }}</dd>
+<dt>CM</dt><dd>{{ cm.name if cm else '' }}</dd><dt>Proposed delivery date</dt><dd>{{ data.date }}</dd><dt>{{ "Effective date" if kind.endswith("-rent") else "Deadline" }}</dt><dd>{{ data.due }}</dd>
+{% if kind.endswith('-end') %}<dt>Ground</dt><dd>{{ grounds[data.ground|int] }}</dd>{% endif %}
+{% if data.details %}<dt>Details</dt><dd>{{ data.details }}</dd>{% endif %}
+{% if data.evidence %}<dt>Supporting documents / warnings</dt><dd>{{ data.evidence }}</dd>{% endif %}
+</dl>
+</section>
+{% endif %}
+
+{% if junior and row.status in ('draft','pending','returned') %}
+<form method="post" id="delete-notice">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="revision" value="{{ row.revision }}">
+<button class="secondary danger" name="command" value="delete">Delete notice</button>
+</form>
+{% endif %}
+
+{% if row.status != 'confirmed' and (row.cm or request.args.get('saved')) %}
+<section id="preview-draft" class="card stack">
+{% if request.args.get('saved') %}<p class="saved-note" role="status"><strong>Draft saved.</strong></p>{% endif %}
+{% if row.cm %}
+<div><a class="button secondary" href="{{ url_for('download', notice_id=row.id) }}" target="_blank" rel="noopener">Preview Saved PDF Draft ↗</a></div>
+{% else %}
+<div><button class="secondary" disabled>Preview Saved PDF Draft</button></div>
+<small>Select a reviewing CM and save again to preview the PDF.</small>
+{% endif %}
+</section>
+{% endif %}
+{% if row.status == 'confirmed' %}
+<section class="card stack">
+<h2>Approved files</h2>
+{% if kind == 'rta-end' %}<p class="alert">Attach the Termination Information Statement when sending this notice to the tenant.</p>{% endif %}
+<div class="bar"><a class="button" href="{{ url_for('download', notice_id=row.id) }}">Download signed PDF</a>
+{% if kind == 'rta-end' %}<a class="button secondary" href="{{ url_for('statement', notice_id=row.id) }}">Download Termination Information Statement</a>{% endif %}</div>
+{% if junior %}<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="revision" value="{{ row.revision }}"><button class="secondary" name="command" value="revise">Create revision</button></form>{% endif %}
+</section>
+{% elif not junior and row.status == 'pending' %}
+<div class="grid">
+<form class="card stack signing" method="post" id="signing-form"><h2>Sign and Confirm</h2>
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ row.revision }}">
+{% if kind == 'rta-end' and data.ground|int < 6 %}<p class="alert">Check the supporting documents required for this ground before serving.</p>{% endif %}
+<div class="stack signature-field">
+<p id="signature-label"><strong>Signature</strong><br><small>Sign with your mouse, trackpad, stylus or finger.</small></p>
+<canvas id="signature-pad" width="900" height="300" aria-labelledby="signature-label"></canvas>
+<input type="hidden" name="signature" id="signature-data">
+<div class="bar"><button type="button" class="secondary" id="signature-clear">Clear signature</button><small id="signature-message" role="status"></small></div>
+</div>
+<button name="command" value="confirm">Confirm and generate PDF</button></form>
+<form class="card stack" method="post"><h2>Return for changes</h2>
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ row.revision }}">
+<label>Changes required<textarea rows="4" name="reason" required></textarea></label>
+<button class="secondary" name="command" value="return">Return to Junior CM</button></form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,24 @@
+[Unit]
+Description=Notice Desk
+After=network.target
+
+[Service]
+Type=simple
+User=notice-desk
+Group=notice-desk
+WorkingDirectory=/opt/notice-desk
+StateDirectory=notice-desk
+StateDirectoryMode=0700
+EnvironmentFile=/etc/notice-desk.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/notice-desk/.venv/bin/gunicorn --bind ${NOTICE_BIND} --workers 1 --threads 4 --access-logfile - app:app
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

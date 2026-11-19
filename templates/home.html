@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ 'Review notices' if g.user.role == 'cm' else 'Your notices' }}</h1>
+{% if g.user.role == 'junior' %}
+<section class="card"><h2>New notice</h2>
+<form method="post" action="{{ url_for('new') }}" class="bar create">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Entity and agreement
+<select id="entity-filter" name="entity" required><option value=""></option><option value="rta">{{ entities.rta }} · RTA</option><option value="oa">{{ entities.oa }} · OA</option></select>
+</label>
+<label>Notice type
+<select id="kind" name="kind" required><option value=""></option>
+{% for code, entity in entities.items() %}<optgroup label="{{ entity }}" data-entity="{{ code }}">
+{% for kind, title in titles.items() if kind.startswith(code) %}<option value="{{ kind }}">{{ title }}</option>{% endfor %}
+</optgroup>{% endfor %}
+</select>
+</label>
+<button>Create draft</button>
+</form></section>
+{% endif %}
+{% for status in ('pending', 'returned', 'draft', 'confirmed') %}
+{% if g.user.role == 'junior' or status in ('pending', 'confirmed') %}
+<section class="card">
+<h2>{{ {'pending':'Pending review','returned':'Returned','draft':'Drafts','confirmed':'Confirmed'}[status] }}</h2>
+{% for row, data in notices if row.status == status %}
+<a class="notice-row" href="{{ url_for('detail', notice_id=row.id) }}">
+<span><strong>{{ data.tenant or 'Untitled notice' }}</strong><small>{{ titles[row.kind] }} · {{ entities[row.kind.split('-')[0]] }}</small></span>
+<span>#{{ row.id }} →</span></a>
+{% else %}<p class="muted">No notices.</p>{% endfor %}
+</section>
+{% endif %}
+{% endfor %}
+{% endblock %}
