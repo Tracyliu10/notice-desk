@@ -496,12 +496,21 @@ def detail(notice_id):
                            fixed_ground_days=OA_END_DAYS if kind == "oa-end" else RTA_END_DAYS)
 
 
+def notice_filename(kind, data):
+    agreement = kind.split("-", 1)[0].upper()
+    # Preserve names as entered, except characters forbidden in common filesystems.
+    tenant = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', " ", data["tenant"])
+    tenant = " ".join(tenant.split()).strip(". ")[:120].rstrip(". ")
+    label = f"{agreement}-{TITLES[kind]}"
+    return f"{label} {tenant}.pdf" if tenant else f"{label}.pdf"
+
+
 @app.get("/notice/<int:notice_id>/pdf")
 def download(notice_id):
     row = record(notice_id)
     if row["status"] == "confirmed":
         return send_file(BytesIO(row["pdf"]), mimetype="application/pdf", as_attachment=True,
-                         download_name=f'{row["kind"]}-{notice_id}.pdf')
+                         download_name=notice_filename(row["kind"], load_notice(row)))
     cm = db().execute("SELECT phone FROM user WHERE id=?", (row["cm"],)).fetchone()
     data = load_notice(row)
     try:
